@@ -12,6 +12,11 @@ const triggers = { start: "شروع", iface_change: "تغییر اینترفیس
 let targets = [];
 let lastSnap = null;
 const html = (value) => String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+document.querySelectorAll(".tg-form .chk input").forEach((checkbox) => {
+  const sync = () => checkbox.parentElement.classList.toggle("on", checkbox.checked);
+  checkbox.addEventListener("change", sync);
+  sync();
+});
 async function saveTargets() {
   const settings = await invoke("get_settings");
   settings.custom_targets = targets;

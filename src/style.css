@@ -157,6 +157,19 @@ textarea[dir="ltr"]{font-family:monospace;font-size:12px}
 .ib{border:0;background:transparent;color:#71717a;cursor:pointer;font-size:14px;padding:2px 6px;border-radius:6px}.ib:hover{background:rgba(255,255,255,.08);color:#fff}.ib.del:hover{color:#f87171}
 .tg-form{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.tg-form input:not([type=checkbox]),.tg-form select{min-width:0}.tg-form #tg-name{width:130px}.tg-form #tg-host{flex:1;min-width:200px}
 .chk{display:flex;align-items:center;gap:4px;font-size:12px;color:#a1a1aa}.tg-empty{color:#71717a;font-size:12px;padding:10px;text-align:center;border:1px dashed #2a2e39;border-radius:10px}
+.tg-form input:not([type=checkbox]),.tg-form select,.tg-form .btn,.tg-form .chk{height:36px}
+.tg-form select,.form select,#days{appearance:none;-webkit-appearance:none;background:#0f1115 url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>") no-repeat left 10px center;padding:0 10px 0 28px;color:#e4e4e7;border:1px solid #2a2e39;border-radius:8px;font:inherit;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.tg-form select:hover,.form select:hover{border-color:#3f4453}
+.tg-form select:focus,.form select:focus,.tg-form input:focus,.form input:focus,.form textarea:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.2)}
+select option{background:#161922;color:#e4e4e7}#preset{color:#a1a1aa}
+.tg-form .chk{display:inline-flex;align-items:center;gap:8px;padding:0 12px;border:1px solid #2a2e39;border-radius:8px;background:#0f1115;color:#a1a1aa;font-size:12.5px;cursor:pointer;user-select:none;transition:.15s}
+.tg-form .chk:hover{border-color:#3f4453;color:#e4e4e7}.tg-form .chk:has(input:checked),.tg-form .chk.on{border-color:#3b82f6;background:rgba(59,130,246,.12);color:#e4e4e7}
+.tg-form .chk input{appearance:none;-webkit-appearance:none;margin:0;width:16px;height:16px;border-radius:5px;border:1.5px solid #3f4453;background:#161922;display:grid;place-content:center;cursor:pointer;transition:.15s}
+.tg-form .chk input::before{content:"";width:9px;height:9px;border-radius:2px;background:#fff;transform:scale(0);transition:transform .12s ease-in-out;clip-path:polygon(14% 44%,0 65%,50% 100%,100% 16%,80% 0,43% 62%)}
+.tg-form .chk input:checked{background:#3b82f6;border-color:#3b82f6}.tg-form .chk input:checked::before{transform:scale(1)}.tg-form .chk input:focus-visible{box-shadow:0 0 0 3px rgba(59,130,246,.3)}
+.form label:has(> input[type=checkbox]){flex-direction:row;align-items:center;gap:8px;cursor:pointer}.form input[type=checkbox]{accent-color:#3b82f6;width:16px;height:16px;cursor:pointer}
+.tg-form input[type=number]{-moz-appearance:textfield}.tg-form input[type=number]::-webkit-inner-spin-button,.tg-form input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.tg-form input::placeholder{color:#52525b}.tg-form .btn{display:inline-flex;align-items:center;padding:0 16px}
 
 :focus-visible{outline:2px solid var(--accent-2);outline-offset:2px}
 
