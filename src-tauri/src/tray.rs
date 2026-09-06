@@ -8,10 +8,15 @@ use tauri::{AppHandle, Manager};
 
 pub const TRAY_ID: &str = "main-tray";
 pub const SPEED_TRAY_ID: &str = "speed-tray";
+pub const DOWN_TRAY_ID: &str = "down-tray";
+pub const UP_TRAY_ID: &str = "up-tray";
 static LAST_ICON: Mutex<Option<NetState>> = Mutex::new(None);
 static LAST_SPEED: Mutex<Option<(String, String, NetState)>> = Mutex::new(None);
+static LAST_DOWN: Mutex<Option<String>> = Mutex::new(None);
+static LAST_UP: Mutex<Option<String>> = Mutex::new(None);
 static LAYOUT_ITEMS: Mutex<Option<Vec<(&'static str, CheckMenuItem<tauri::Wry>)>>> = Mutex::new(None);
-const LAYOUTS: &[(&str, &str)] = &[("dual", "دو آیکون: وضعیت + سرعت"), ("badge", "یک آیکون: سرعت روی رنگ وضعیت"), ("title", "متن کنار آیکون (فقط مک)"), ("circle", "فقط دایره وضعیت")];
+static TOGGLE_ITEMS: Mutex<Option<(CheckMenuItem<tauri::Wry>, CheckMenuItem<tauri::Wry>)>> = Mutex::new(None);
+const LAYOUTS: &[(&str, &str)] = &[("separate", "آیکون‌های جدا: وضعیت + دانلود + آپلود"), ("dual", "دو آیکون: وضعیت + سرعت (ترکیبی)"), ("badge", "یک آیکون: سرعت روی رنگ وضعیت"), ("title", "متن کنار آیکون (فقط مک)"), ("circle", "فقط دایره وضعیت")];
 
 fn layout(app: &AppHandle) -> String { app.state::<AppState>().settings.read().tray_layout.clone() }
 fn shape(state: NetState) -> icon::Shape { if state == NetState::Unstable { icon::Shape::Ring } else { icon::Shape::Solid } }
@@ -20,6 +25,31 @@ pub fn on_main(app: &AppHandle, f: impl FnOnce(&AppHandle) + Send + 'static) { l
 const RLM: &str = "\u{200F}";
 fn ltr(v: impl std::fmt::Display) -> String { format!("\u{2066}{v}\u{2069}") }
 
+fn build_aux_tray(app: &AppHandle, id: &str, img: tauri::image::Image<'static>, tip: &str) -> tauri::Result<()> {
+    TrayIconBuilder::with_id(id)
+        .icon(img)
+        .tooltip(tip)
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| {
+            let app = tray.app_handle();
+            match event {
+                TrayIconEvent::Enter { .. } => crate::hover::schedule_show(&app),
+                TrayIconEvent::Leave { .. } => crate::hover::schedule_hide(&app),
+                TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => { crate::hover::schedule_hide(&app); popup::open_dashboard(&app); },
+                _ => {}
+            }
+        })
+        .build(app)?;
+    Ok(())
+}
+
+fn sync_tray(app: &AppHandle, id: &str, want: bool, make: impl FnOnce() -> tauri::image::Image<'static>, tip: &str) -> tauri::Result<()> {
+    let exists = app.tray_by_id(id).is_some();
+    if want && !exists { build_aux_tray(app, id, make(), tip)?; }
+    else if !want && exists { let _ = app.remove_tray_by_id(id); }
+    Ok(())
+}
+
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "داشبورد و آمار", true, None::<&str>)?;
     let check = MenuItem::with_id(app, "check", "بررسی مجدد", true, None::<&str>)?;
@@ -27,15 +57,25 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let quiet = CheckMenuItem::with_id(app, "quiet", "حالت سکوت", true, false, None::<&str>)?;
     let mut items = Vec::new();
     for (id, label) in LAYOUTS { if *id == "title" && !cfg!(target_os = "macos") { continue; } items.push((*id, CheckMenuItem::with_id(app, format!("layout:{id}"), *label, true, layout(app) == *id, None::<&str>)?)); }
-    let refs: Vec<&dyn tauri::menu::IsMenuItem<_>> = items.iter().map(|(_, item)| item as &dyn tauri::menu::IsMenuItem<_>).collect();
+    let state = app.state::<AppState>();
+    let settings = state.settings.read();
+    let d0 = settings.tray_down;
+    let u0 = settings.tray_up;
+    let sep = PredefinedMenuItem::separator(app)?;
+    let t_down = CheckMenuItem::with_id(app, "toggle:down", "آیکون دانلود", true, d0, None::<&str>)?;
+    let t_up = CheckMenuItem::with_id(app, "toggle:up", "آیکون آپلود", true, u0, None::<&str>)?;
+    let mut refs: Vec<&dyn tauri::menu::IsMenuItem<_>> = items.iter().map(|(_, item)| item as &dyn tauri::menu::IsMenuItem<_>).collect();
+    refs.push(&sep); refs.push(&t_down); refs.push(&t_up);
     let layout_menu = Submenu::with_items(app, "نمایش روی تسک‌بار", true, &refs)?;
     *LAYOUT_ITEMS.lock() = Some(items);
+    *TOGGLE_ITEMS.lock() = Some((t_down, t_up));
     let quit = MenuItem::with_id(app, "quit", "خروج", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&open, &check, &proxy_item, &quiet, &layout_menu, &separator, &quit])?;
     TrayIconBuilder::with_id(TRAY_ID).icon(icon::make([120,120,120,255], icon::Shape::Solid, None)).tooltip("NetWatch").menu(&menu).show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
             if let Some(value) = event.id().as_ref().strip_prefix("layout:") { let state = app.state::<AppState>(); { let mut settings = state.settings.write(); settings.tray_layout = value.into(); let _ = config::save(&state.settings_path.lock(), &settings); } refresh_icon(app); return; }
+            if let Some(which) = event.id().as_ref().strip_prefix("toggle:") { let st = app.state::<AppState>(); { let mut settings = st.settings.write(); if which == "down" { settings.tray_down = !settings.tray_down; } else { settings.tray_up = !settings.tray_up; } if settings.tray_layout != "separate" && (settings.tray_down || settings.tray_up) { settings.tray_layout = "separate".into(); } let _ = config::save(&st.settings_path.lock(), &settings); } refresh_icon(app); return; }
             match event.id().as_ref() { "open" => popup::open_dashboard(app), "check" => app.state::<AppState>().kick.notify_one(), "proxy" => { let _ = proxy::disable(); app.state::<AppState>().kick.notify_one(); }, "quiet" => { let state = app.state::<AppState>(); let mut settings = state.settings.write(); settings.quiet = !settings.quiet; let _ = config::save(&state.settings_path.lock(), &settings); }, "quit" => app.exit(0), _ => {} }
         })
         .on_tray_icon_event(|tray, event| { let app = tray.app_handle(); match event { TrayIconEvent::Enter { .. } => { let state = app.state::<AppState>(); if state.last_check.lock().elapsed() > Duration::from_secs(3) && !state.checking.load(SeqCst) { state.kick.notify_one(); } crate::hover::schedule_show(&app); }, TrayIconEvent::Leave { .. } => crate::hover::schedule_hide(&app), TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => { crate::hover::schedule_hide(&app); popup::open_dashboard(&app); }, _ => {} } })
@@ -44,12 +84,19 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
 }
 
 pub fn ensure_speed_tray(app: &AppHandle) -> tauri::Result<()> {
-    let want = layout(app) == "dual";
-    let exists = app.tray_by_id(SPEED_TRAY_ID).is_some();
-    if want && !exists { TrayIconBuilder::with_id(SPEED_TRAY_ID).icon(icon::speed_text("0.0", "0.0", dpi_scale(app))).tooltip("NetWatch — سرعت").show_menu_on_left_click(false).on_tray_icon_event(|tray, event| { let app = tray.app_handle(); match event { TrayIconEvent::Enter { .. } => crate::hover::schedule_show(&app), TrayIconEvent::Leave { .. } => crate::hover::schedule_hide(&app), TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => popup::open_dashboard(&app), _ => {} } }).build(app)?; }
-    else if !want && exists { let _ = app.remove_tray_by_id(SPEED_TRAY_ID); }
+    let state = app.state::<AppState>();
+    let settings = state.settings.read();
+    let lay = settings.tray_layout.clone();
+    let down = settings.tray_down;
+    let up = settings.tray_up;
+    let k = dpi_scale(app);
+    sync_tray(app, SPEED_TRAY_ID, lay == "dual", || icon::speed_text("0.0", "0.0", k), "NetWatch — سرعت")?;
+    sync_tray(app, DOWN_TRAY_ID, lay == "separate" && down, || icon::speed_single("0.0", true, k), "NetWatch — دانلود")?;
+    sync_tray(app, UP_TRAY_ID, lay == "separate" && up, || icon::speed_single("0.0", false, k), "NetWatch — آپلود")?;
     if layout(app) != "title" { if let Some(tray) = app.tray_by_id(TRAY_ID) { let _ = tray.set_title(None::<&str>); } }
     *LAST_SPEED.lock() = None;
+    *LAST_DOWN.lock() = None;
+    *LAST_UP.lock() = None;
     Ok(())
 }
 
@@ -65,6 +112,12 @@ pub fn on_speed(app: &AppHandle, rx_bps: u64, tx_bps: u64) {
         "dual" => if let Some(t) = a.tray_by_id(SPEED_TRAY_ID) { let _ = t.set_icon(img); let _ = t.set_tooltip(Some(format!("{RLM}دانلود: {}  ·  آپلود: {}", ltr(format!("{down} MB/s")), ltr(format!("{up} MB/s"))))); },
         "badge" => if let Some(t) = a.tray_by_id(TRAY_ID) { let _ = t.set_icon(img); *LAST_ICON.lock() = None; },
         "title" => if let Some(t) = a.tray_by_id(TRAY_ID) { let _ = t.set_title(Some(format!("↓{down} ↑{up}"))); },
+        "separate" => {
+            let do_down = { let mut l = LAST_DOWN.lock(); if l.as_deref() == Some(&down) { false } else { *l = Some(down.clone()); true } };
+            let do_up = { let mut l = LAST_UP.lock(); if l.as_deref() == Some(&up) { false } else { *l = Some(up.clone()); true } };
+            if do_down { if let Some(t) = a.tray_by_id(DOWN_TRAY_ID) { let _ = t.set_icon(Some(icon::speed_single(&down, true, scale))); let _ = t.set_tooltip(Some(format!("{RLM}دانلود: {}", ltr(format!("{down} MB/s"))))); } }
+            if do_up { if let Some(t) = a.tray_by_id(UP_TRAY_ID) { let _ = t.set_icon(Some(icon::speed_single(&up, false, scale))); let _ = t.set_tooltip(Some(format!("{RLM}آپلود: {}", ltr(format!("{up} MB/s"))))); } }
+        }
         _ => {}
     });
 }
@@ -76,8 +129,26 @@ pub fn set_state_icon(app: &AppHandle, state: NetState) {
     on_main(app, move |a| { if let Some(t) = a.tray_by_id(TRAY_ID) { if t.set_icon(Some(img)).is_ok() { *LAST_ICON.lock() = Some(state); } } });
 }
 
-pub fn refresh_icon(app: &AppHandle) { let _ = ensure_speed_tray(app); *LAST_ICON.lock() = None; *LAST_SPEED.lock() = None; let state = app.state::<AppState>().snapshot.lock().state; set_state_icon(app, state); sync_layout_menu(app); }
-fn sync_layout_menu(app: &AppHandle) { let current = layout(app); if let Some(items) = LAYOUT_ITEMS.lock().as_ref() { for (id, item) in items { let _ = item.set_checked(*id == current); } } }
+pub fn refresh_icon(app: &AppHandle) { let _ = ensure_speed_tray(app); *LAST_ICON.lock() = None; *LAST_SPEED.lock() = None; *LAST_DOWN.lock() = None; *LAST_UP.lock() = None; let state = app.state::<AppState>().snapshot.lock().state; set_state_icon(app, state); sync_layout_menu(app); }
+fn sync_layout_menu(app: &AppHandle) {
+    let current = layout(app);
+    if let Some(items) = LAYOUT_ITEMS.lock().as_ref() {
+        for (id, item) in items {
+            let _ = item.set_checked(*id == current);
+        }
+    }
+    let state = app.state::<AppState>();
+    let settings = state.settings.read();
+    let down = settings.tray_down;
+    let up = settings.tray_up;
+    let separate = settings.tray_layout == "separate";
+    if let Some((td, tu)) = TOGGLE_ITEMS.lock().as_ref() {
+        let _ = td.set_checked(down);
+        let _ = tu.set_checked(up);
+        let _ = td.set_enabled(separate);
+        let _ = tu.set_enabled(separate);
+    }
+}
 
 pub fn spin(app: &AppHandle) -> Option<JoinHandle<()>> {
     if cfg!(target_os = "linux") || layout(app) == "badge" { return None; }

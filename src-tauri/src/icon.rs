@@ -42,6 +42,51 @@ const DL: [u8; 4] = [74, 222, 128, 255];
 const UL: [u8; 4] = [96, 165, 250, 255];
 const BASE: usize = 16;
 
+const GLYPH7: [[u8; 7]; 10] = [
+    [0b111, 0b101, 0b101, 0b101, 0b101, 0b101, 0b111],
+    [0b010, 0b110, 0b010, 0b010, 0b010, 0b010, 0b111],
+    [0b111, 0b001, 0b001, 0b111, 0b100, 0b100, 0b111],
+    [0b111, 0b001, 0b001, 0b111, 0b001, 0b001, 0b111],
+    [0b101, 0b101, 0b101, 0b111, 0b001, 0b001, 0b001],
+    [0b111, 0b100, 0b100, 0b111, 0b001, 0b001, 0b111],
+    [0b111, 0b100, 0b100, 0b111, 0b101, 0b101, 0b111],
+    [0b111, 0b001, 0b001, 0b010, 0b010, 0b010, 0b010],
+    [0b111, 0b101, 0b101, 0b111, 0b101, 0b101, 0b111],
+    [0b111, 0b101, 0b101, 0b111, 0b001, 0b001, 0b111],
+];
+const ARROW7_DOWN: [u8; 7] = [0b010, 0b010, 0b010, 0b010, 0b111, 0b111, 0b010];
+const ARROW7_UP: [u8; 7] = [0b010, 0b111, 0b111, 0b010, 0b010, 0b010, 0b010];
+
+fn blit7(grid: &mut Grid, rows: &[u8; 7], x: usize, y: usize, c: [u8; 4]) {
+    for (dy, row) in rows.iter().enumerate() {
+        for dx in 0..3 {
+            if row & (0b100 >> dx) != 0 {
+                if let Some(cell) = grid.get_mut(y + dy).and_then(|line| line.get_mut(x + dx)) {
+                    *cell = Some(c);
+                }
+            }
+        }
+    }
+}
+
+pub fn speed_single(value: &str, down: bool, scale: usize) -> Image<'static> {
+    let mut grid: Grid = [[None; BASE]; BASE];
+    let y = (BASE - 7) / 2;
+    blit7(&mut grid, if down { &ARROW7_DOWN } else { &ARROW7_UP }, 0, y, if down { DL } else { UL });
+    let width: usize = value.chars().map(|ch| if ch == '.' { 1 } else { 3 }).sum::<usize>() + value.chars().count().saturating_sub(1);
+    let mut x = BASE - width;
+    for ch in value.chars() {
+        if ch == '.' {
+            if let Some(cell) = grid[y + 6].get_mut(x) { *cell = Some(TEXT); }
+            x += 2;
+        } else if let Some(digit) = ch.to_digit(10) {
+            blit7(&mut grid, &GLYPH7[digit as usize], x, y, TEXT);
+            x += 4;
+        }
+    }
+    render(&grid, scale)
+}
+
 pub fn format_mb(bps: u64) -> String {
 	let megabytes = bps as f64 / (1024.0 * 1024.0);
 	if megabytes >= 10.0 { format!("{:.0}", megabytes.min(999.0)) } else { format!("{:.1}", megabytes) }

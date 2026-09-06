@@ -57,7 +57,10 @@ async function loadSettings() {
   $("tonline").checked = settings.toast_online;
   $("quiet").checked = settings.quiet;
   $("anchor").checked = settings.anchor_tray;
-  $("trlayout").value = settings.tray_layout;
+  $("trlayout").value = settings.tray_layout ?? "separate";
+  $("trdown").checked = settings.tray_down !== false;
+  $("trup").checked = settings.tray_up !== false;
+  $("trsep").classList.toggle("hidden", $("trlayout").value !== "separate");
   if (!navigator.platform.startsWith("Mac")) $("trlayout").querySelector("[data-mac]")?.remove();
   targets = (settings.custom_targets || []).map((target) => ({ ...target, enabled: target.enabled !== false }));
   renderTargets();
@@ -104,8 +107,15 @@ $("save").onclick = async () => {
   settings.quiet = $("quiet").checked;
   settings.anchor_tray = $("anchor").checked;
   settings.tray_layout = $("trlayout").value;
+  settings.tray_down = $("trdown").checked;
+  settings.tray_up = $("trup").checked;
   await invoke("set_settings", { settings });
+  $("trsep").classList.toggle("hidden", $("trlayout").value !== "separate");
   alert("ذخیره شد");
+};
+
+$("trlayout").onchange = () => {
+  $("trsep").classList.toggle("hidden", $("trlayout").value !== "separate");
 };
 listen("snapshot", (event) => { lastSnap = event.payload; render(event.payload); renderTargets(); });
 invoke("get_snapshot").then(render);
