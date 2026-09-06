@@ -6,7 +6,7 @@ const colors = {
   NO_LINK: ["#7f1d1d", "اتصال به مودم قطع است"], OFFLINE: ["#dc2626", "قطعی کامل"],
   NATIONAL: ["#eab308", "اینترنت ملی"], PROXY_STALE: ["#2563eb", "پروکسی جا مانده"],
   VPN_BROKEN: ["#9333ea", "فیلترشکن خراب"], DNS_ISSUE: ["#f97316", "مشکل DNS"],
-  DEGRADED: ["#fb923c", "اختلال"], UNSTABLE: ["#a16207", "ناپایدار"], ONLINE: ["#22c55e", "سالم"]
+  DEGRADED: ["#fb923c", "اختلال"], UNSTABLE: ["#fbbf24", "ناپایدار"], ONLINE: ["#22c55e", "سالم"]
 };
 const triggers = { start: "شروع", iface_change: "تغییر اینترفیس", route_change: "تغییر مسیر", proxy_change: "تغییر پروکسی", heartbeat_down: "ضربان: قطعی", heartbeat_up: "ضربان: وصل", heartbeat_slow: "ضربان: کندی", followup: "تأیید", manual: "دستی", timer: "زمان‌بندی" };
 let targets = [];

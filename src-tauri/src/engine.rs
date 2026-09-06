@@ -8,11 +8,12 @@
     AppState,
 };
 use std::{
-    collections::VecDeque,
+    collections::{HashMap, VecDeque},
     sync::atomic::Ordering::SeqCst,
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, Manager};
+use crate::state::Sample;
 
 pub async fn probe_all(app: &AppHandle) -> Snapshot {
     let settings = app.state::<AppState>().settings.read().clone();
@@ -70,8 +71,6 @@ pub async fn probe_all(app: &AppHandle) -> Snapshot {
     let mut lat: Vec<u32> = intl.iter().filter_map(|x| x.ms).collect();
     lat.sort_unstable();
     s.international_ping = lat.get(lat.len() / 2).copied();
-    s.loss_pct = ((intl.iter().filter(|x| !x.ok).count() * 100) / intl.len().max(1)) as u8;
-
     if !raw_known && s.tun.is_some() && !s.via_vpn {
         s.note = Some("سنجش مستقیم خط ممکن نبود؛ برای اطمینان فیلترشکن را موقتاً ببندید.".into());
     } else if s.via_vpn && !s.international_ok {
@@ -83,7 +82,41 @@ pub async fn probe_all(app: &AppHandle) -> Snapshot {
     s
 }
 
-pub fn decide(s: &Snapshot) -> NetState {
+pub struct Quality {
+    seen_ok: HashMap<String, Instant>,
+    base: Option<f32>,
+    bad: u8,
+    good: u8,
+    pub degraded: bool,
+}
+
+impl Quality {
+    pub fn new() -> Self { Self { seen_ok: HashMap::new(), base: None, bad: 0, good: 0, degraded: false } }
+
+    pub fn assess(&mut self, snapshot: &mut Snapshot) -> bool {
+        let now = Instant::now();
+        let international: Vec<&Sample> = snapshot.samples.iter().filter(|sample| sample.group == "international" && sample.proto != "icmp").collect();
+        for sample in &international { if sample.ok { self.seen_ok.insert(sample.name.clone(), now); } }
+        let known: Vec<&&Sample> = international.iter().filter(|sample| self.seen_ok.get(&sample.name).map_or(false, |time| now.duration_since(*time) < Duration::from_secs(900))).collect();
+        snapshot.loss_pct = if known.len() >= 3 { (known.iter().filter(|sample| !sample.ok).count() * 100 / known.len()) as u8 } else { 0 };
+
+        let ping = if snapshot.via_vpn { snapshot.vpn_ping.or(snapshot.international_ping) } else { snapshot.international_ping };
+        let slow = match (ping, self.base) {
+            (Some(ping), Some(base)) => (ping as f32) > (base * 2.2).max(450.0) || ping > 900,
+            (Some(ping), None) => ping > 900,
+            _ => false,
+        };
+        if let (Some(ping), false) = (ping, slow) { self.base = Some(self.base.map_or(ping as f32, |base| base * 0.85 + ping as f32 * 0.15)); }
+
+        let bad = snapshot.international_ok && (snapshot.loss_pct >= 40 || slow);
+        if bad { self.bad = self.bad.saturating_add(1); self.good = 0; } else { self.good = self.good.saturating_add(1); self.bad = 0; }
+        if !self.degraded && self.bad >= 3 { self.degraded = true; }
+        if self.degraded && self.good >= 2 { self.degraded = false; }
+        self.degraded
+    }
+}
+
+pub fn decide(s: &Snapshot, degraded: bool) -> NetState {
     let p = &s.proxy;
     let vpn_active = s.tun.is_some() || (p.configured && p.listening);
     if !s.raw_known {
@@ -113,23 +146,17 @@ pub fn decide(s: &Snapshot) -> NetState {
     if !s.via_vpn && (s.dns.poisoned || !s.dns.system_ok) {
         return NetState::DnsIssue;
     }
-    let ping = if s.via_vpn {
-        s.vpn_ping.or(s.international_ping)
-    } else {
-        s.international_ping
-    };
-    if (!s.via_vpn && s.loss_pct >= 30) || ping.is_some_and(|ms| ms > 400) {
-        return NetState::Degraded;
-    }
+    if degraded { return NetState::Degraded; }
     NetState::Online
 }
 
 pub async fn run_loop(app: AppHandle) {
     let st = app.state::<AppState>();
     let (tx, mut rx) = watch::start(app.clone());
+    let mut quality = Quality::new();
     let mut cand: Option<NetState> = None;
     let mut cand_n = 0u8;
-    let mut changes: VecDeque<Instant> = VecDeque::new();
+    let mut flaps: VecDeque<Instant> = VecDeque::new();
     let mut last_popup: Option<Instant> = None;
     let mut first = true;
     let mut trig = Trigger::Start;
@@ -146,13 +173,15 @@ pub async fn run_loop(app: AppHandle) {
         }
 
         st.checking.store(true, SeqCst);
-        tray::spin(&app);
+        let spinner = tray::spin(&app);
         let mut snap = probe_all(&app).await;
         st.checking.store(false, SeqCst);
+        if let Some(handle) = spinner { let _ = handle.await; }
         *st.last_check.lock() = Instant::now();
         snap.trigger = Some(serde_json::to_value(trig).unwrap().as_str().unwrap().to_string());
 
-        let raw = decide(&snap);
+        let degraded = quality.assess(&mut snap);
+        let raw = decide(&snap, degraded);
         let prev = st.snapshot.lock().state;
 
         if cand == Some(raw) {
@@ -162,21 +191,18 @@ pub async fn run_loop(app: AppHandle) {
             cand_n = 1;
         }
 
-        let decisive = matches!(raw, NetState::NoLink | NetState::Offline)
+        let decisive = raw == NetState::NoLink
             && matches!(trig, Trigger::IfaceChange | Trigger::RouteChange);
         let mut stable = if first || cand_n >= 2 || decisive { raw } else { prev };
         first = false;
 
-        if stable != prev {
-            let now = Instant::now();
-            changes.push_back(now);
-            while changes.front().map_or(false, |t| now.duration_since(*t) > Duration::from_secs(120)) {
-                changes.pop_front();
-            }
-            if changes.len() > 3 && stable != NetState::Unstable {
-                stable = NetState::Unstable;
-            }
-        }
+        let now = Instant::now();
+        while flaps.front().map_or(false, |time| now.duration_since(*time) > Duration::from_secs(300)) { flaps.pop_front(); }
+        let is_major = |state: NetState| !matches!(state, NetState::Online | NetState::Degraded);
+        if stable != prev && prev != NetState::Unstable && (is_major(stable) || is_major(prev)) { flaps.push_back(now); }
+        let calm = flaps.back().map_or(true, |time| now.duration_since(*time) > Duration::from_secs(120));
+        if flaps.len() > 4 && !calm && !matches!(stable, NetState::NoLink | NetState::Offline) { stable = NetState::Unstable; }
+        if prev == NetState::Unstable && !calm && !matches!(stable, NetState::NoLink | NetState::Offline) { stable = NetState::Unstable; }
 
         snap.state = stable;
         *st.snapshot.lock() = snap.clone();
@@ -186,8 +212,11 @@ pub async fn run_loop(app: AppHandle) {
         let settings = st.settings.read().clone();
         if stable != prev {
             history::record_event(&st, prev, stable, &snap);
+            let is_major = |state: NetState| !matches!(state, NetState::Online | NetState::Degraded);
+            let minor = !is_major(stable) && !is_major(prev);
+            let cooldown = if minor { 180 } else { settings.popup_cooldown_secs };
             let secs = if stable == NetState::Online { 3 } else { settings.popup_seconds };
-            let cooldown_ok = last_popup.map_or(true, |t| t.elapsed() > Duration::from_secs(settings.popup_cooldown_secs));
+            let cooldown_ok = last_popup.map_or(true, |time| time.elapsed() > Duration::from_secs(cooldown));
             let relevant = !settings.popup_only_outages || stable.is_outage() || prev.is_outage();
             let online_ok = stable != NetState::Online || settings.toast_online;
             if settings.popup_enabled && !settings.quiet && relevant && online_ok && (cooldown_ok || stable.is_outage()) {
@@ -197,7 +226,7 @@ pub async fn run_loop(app: AppHandle) {
         }
         history::record_sample(&st, &snap);
 
-        if trig.needs_followup() || (cand_n == 1 && raw != prev) {
+        if trig.needs_followup() {
             let tx2 = tx.clone();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(Duration::from_secs(6)).await;

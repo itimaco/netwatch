@@ -10,17 +10,20 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build:
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-22.04
-            args: ""
+            name: linux
+            bundles: deb,rpm,appimage
           - os: macos-latest
-            args: ""
+            name: macos
+            bundles: dmg,app
           - os: windows-latest
-            args: ""
+            name: windows
+            bundles: nsis,msi
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -30,7 +33,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev xdg-utils
 
       - name: Setup Node
         uses: actions/setup-node@v5
@@ -44,15 +47,47 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build and publish bundles
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build bundles
+        run: npm run tauri -- build --bundles ${{ matrix.bundles }}
+
+      - name: Archive macOS app bundle
+        if: runner.os == 'macOS'
+        shell: bash
+        run: tar -czf "src-tauri/target/release/bundle/NetWatch-${{ github.ref_name }}-macos-app.tar.gz" -C src-tauri/target/release/bundle/macos NetWatch.app
+
+      - name: Collect bundles
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          find src-tauri/target/release/bundle -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.dmg' -o -name '*.msi' -o -name '*.exe' -o -name '*.tar.gz' \) -exec cp {} release-assets/ \;
+
+      - name: Upload bundles
+        uses: actions/upload-artifact@v5
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: NetWatch ${{ github.ref_name }}
-          releaseBody: Automated multi-platform release for NetWatch ${{ github.ref_name }}.
-          releaseDraft: false
-          prerelease: false
-          projectPath: .
-          args: ${{ matrix.args }}
+          name: netwatch-${{ matrix.name }}
+          path: release-assets/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download bundles
+        uses: actions/download-artifact@v5
+        with:
+          pattern: netwatch-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --repo "${{ github.repository }}" \
+            --verify-tag \
+            --title "NetWatch ${{ github.ref_name }}" \
+            --notes "Automated multi-platform release for NetWatch ${{ github.ref_name }}." \
+            release-assets/*

@@ -11,7 +11,7 @@ impl NetState {
     pub fn color(self) -> [u8; 4] { match self {
         Self::NoLink => [127,29,29,255], Self::Offline => [220,38,38,255], Self::National => [234,179,8,255],
         Self::ProxyStale => [37,99,235,255], Self::VpnBroken => [147,51,234,255], Self::DnsIssue => [249,115,22,255],
-        Self::Degraded => [251,146,60,255], Self::Unstable => [161,98,7,255], Self::Online => [34,197,94,255],
+        Self::Degraded => [251,146,60,255], Self::Unstable => [251,191,36,255], Self::Online => [34,197,94,255],
     }}
     pub fn hex(self) -> String { let c=self.color(); format!("#{:02x}{:02x}{:02x}",c[0],c[1],c[2]) }
     pub fn emoji(self) -> &'static str { match self { Self::NoLink=>"📡",Self::Offline=>"🔴",Self::National=>"🇮🇷",Self::ProxyStale=>"🔌",Self::VpnBroken=>"🛡️",Self::DnsIssue=>"🧭",Self::Degraded=>"🐢",Self::Unstable=>"📉",Self::Online=>"🟢" } }
@@ -23,7 +23,7 @@ impl NetState {
         Self::VpnBroken=>"فیلترشکن وصله ولی کار نمی‌کنه",
         Self::DnsIssue=>"سایت‌ها باز نمی‌شن",
         Self::Degraded=>"اینترنت کنده",
-        Self::Unstable=>"وضعیت شبکه ناپایداره",
+        Self::Unstable=>"اتصال ناپایدار (قطع و وصل مکرر)",
         Self::Online=>"همه‌چیز روبه‌راهه",
     }}
     pub fn message(self) -> &'static str { match self {

@@ -11,6 +11,7 @@ use serde::Serialize;
 use tauri::AppHandle;
 use tokio::sync::mpsc;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Trigger {

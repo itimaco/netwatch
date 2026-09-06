@@ -10,7 +10,7 @@
     };
   }
   const last = (a) => a[a.length - 1];
-  const C = { ONLINE: "#22c55e", DEGRADED: "#fb923c", UNSTABLE: "#a16207", NATIONAL: "#eab308", OFFLINE: "#dc2626", NO_LINK: "#7f1d1d", PROXY_STALE: "#2563eb", VPN_BROKEN: "#9333ea", DNS_ISSUE: "#f97316", UNKNOWN: "#3f3f46" };
+  const C = { ONLINE: "#22c55e", DEGRADED: "#fb923c", UNSTABLE: "#fbbf24", NATIONAL: "#eab308", OFFLINE: "#dc2626", NO_LINK: "#7f1d1d", PROXY_STALE: "#2563eb", VPN_BROKEN: "#9333ea", DNS_ISSUE: "#f97316", UNKNOWN: "#3f3f46" };
   const L = { ONLINE: "آزاد", DEGRADED: "اختلال", UNSTABLE: "ناپایدار", NATIONAL: "ملی", OFFLINE: "قطع", NO_LINK: "بدون مودم", PROXY_STALE: "پروکسی جامانده", VPN_BROKEN: "فیلترشکن خراب", DNS_ISSUE: "DNS", UNKNOWN: "خاموش/بدون داده" };
   const fa = (n) => Number(n).toLocaleString("fa-IR");
   const hh = (ts) => new Date(ts * 1000).toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" });
