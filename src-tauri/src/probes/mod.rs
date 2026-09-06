@@ -1,0 +1,10 @@
+pub mod custom;
+pub mod dns;
+pub mod domestic;
+pub mod exit;
+pub mod gateway;
+pub mod international;
+pub mod net;
+pub mod proxy;
+pub mod vpn;
+pub const URL_204: &str = "http://connectivitycheck.gstatic.com/generate_204";

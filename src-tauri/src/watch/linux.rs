@@ -1,0 +1,4 @@
+use super::{Trigger, Tx};
+use notify::{EventKind, RecursiveMode, Watcher};
+
+pub fn spawn(tx: Tx) { let Some(home) = std::env::var_os("HOME") else { return }; let dconf = std::path::PathBuf::from(home).join(".config/dconf"); std::thread::spawn(move || { let tx2 = tx.clone(); let mut watcher = match notify::recommended_watcher(move |event: notify::Result<notify::Event>| { if let Ok(event) = event { if matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_)) && event.paths.iter().any(|path| path.ends_with("user")) { let _ = tx2.blocking_send(Trigger::ProxyChange); } } }) { Ok(watcher) => watcher, Err(error) => { log::warn!("dconf watch: {error}"); return; } }; if watcher.watch(&dconf, RecursiveMode::NonRecursive).is_ok() { loop { std::thread::park(); } } }); }

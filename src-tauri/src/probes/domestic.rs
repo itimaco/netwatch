@@ -1,0 +1,6 @@
+use super::{dns,net::{self,Route}};
+use crate::state::Sample;
+use std::net::{IpAddr,SocketAddr};
+pub const DOMESTIC_DNS:&[(&str,&str)]=&[("Shecan","178.22.122.100"),("Shecan-2","185.51.200.2"),("Electro","78.157.42.100"),("Begzar","185.55.226.26")];
+pub const DOMESTIC_TCP:&[(&str,&str,u16)]=&[("Shecan-TCP53","178.22.122.100",53),("Shecan2-TCP53","185.51.200.2",53)];
+pub async fn check(route:&Route)->Vec<Sample>{let mut futs=Vec::new();for(name,ip)in DOMESTIC_DNS{let address:IpAddr=ip.parse().unwrap();let current=route.clone();futs.push(tokio::spawn(async move{let ms=if current.is_bound(){net::tcp_via(&current,SocketAddr::new(address,53)).await}else{dns::query(address,"aparat.com.").await.map(|x|x.0)};Sample{name:name.to_string(),proto:if current.is_bound(){"tcp".into()}else{"dns".into()},group:"domestic".into(),ok:ms.is_some(),ms}}));}for(name,ip,port)in DOMESTIC_TCP{let addr=SocketAddr::new(ip.parse().unwrap(),*port);let current=route.clone();futs.push(tokio::spawn(async move{let ms=net::tcp_via(&current,addr).await;Sample{name:name.to_string(),proto:"tcp".into(),group:"domestic".into(),ok:ms.is_some(),ms}}));}let mut out=Vec::new();for f in futs{if let Ok(s)=f.await{out.push(s)}}out}

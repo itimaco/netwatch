@@ -1,0 +1,6 @@
+use netdev::interface::{Interface,InterfaceType};
+const HINTS:&[&str]=&["wintun","tap-windows","wireguard","openvpn","hiddify","nekoray","nekobox","sing-tun","singbox","clash","meta","v2ray","tun2socks","outline","psiphon"];
+pub struct Nic{pub name:String,pub index:u32,pub ip:std::net::IpAddr,pub gateway:Option<std::net::IpAddr>}
+fn is_tunnel(i:&Interface)->bool{let name=i.name.to_lowercase();let friendly=i.friendly_name.clone().unwrap_or_default().to_lowercase();let description=i.description.clone().unwrap_or_default().to_lowercase();i.if_type==InterfaceType::Tunnel||name.starts_with("tun")||name.starts_with("utun")||name.starts_with("wg")||name.starts_with("tap")||HINTS.iter().any(|hint|name.contains(hint)||friendly.contains(hint)||description.contains(hint))}
+pub fn tun_interface()->Option<String>{netdev::get_interfaces().into_iter().find(|i|is_tunnel(i)&&i.is_up()&&!i.ipv4.is_empty()).map(|i|i.friendly_name.unwrap_or(i.name))}
+pub fn physical_nic()->Option<Nic>{netdev::get_interfaces().into_iter().find_map(|i|{if is_tunnel(&i)||i.is_loopback()||!i.is_up(){return None;}let gateway=i.gateway.as_ref()?;let ip=i.ipv4.first()?.addr();Some(Nic{name:i.name.clone(),index:i.index,ip:ip.into(),gateway:gateway.ipv4.first().map(|value|(*value).into())})})}

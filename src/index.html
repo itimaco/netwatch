@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+
+<head>
+    <meta charset="utf-8">
+    <title>NetWatch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="analytics.css">
+</head>
+
+<body>
+    <header>
+        <div class="status"><span id="dot" class="dot"></span>
+            <div>
+                <div id="stitle" class="stitle">در حال بررسی</div>
+                <div id="smsg" class="smsg"></div>
+            </div>
+        </div><button id="recheck" class="btn">بررسی مجدد</button>
+    </header>
+    <main>
+        <section id="analytics" class="ana">
+            <div class="ana-head"><div><h2>تحلیل کیفیت اینترنت</h2><div id="ana-range" class="ana-sub"></div></div><div class="seg"><button data-p="day" class="on">امروز</button><button data-p="week">این هفته</button><button id="ana-csv" class="ghost" title="خروجی CSV">⇩</button></div></div>
+            <div id="ana-kpis" class="kpis"></div>
+            <div class="glass"><div class="g-title">نوار وضعیت ۱۲ ساعت اخیر <span class="g-hint">راست: ۱۲ ساعت قبل — چپ: اکنون</span></div><canvas id="ana-timeline" height="52"></canvas><div id="ana-legend" class="legend"></div></div>
+            <div class="two"><div class="glass"><div class="g-title">نقشه ساعتی <span class="g-hint">رنگ = وضعیت غالب</span></div><canvas id="ana-heat" height="60"></canvas></div><div class="glass"><div class="g-title">پینگ <span class="g-hint">خارجی / داخلی / پکت‌لاس</span></div><canvas id="ana-ping" height="150"></canvas></div></div>
+            <div id="ana-week" class="two hidden"><div class="glass"><div class="g-title">روزهای هفته</div><canvas id="ana-days" height="160"></canvas></div><div class="glass"><div class="g-title">بدترین ساعت‌ها</div><div id="ana-worst" class="worst"></div></div></div><div id="ana-tip" class="tip hidden"></div>
+        </section>
+        <section class="grid">
+            <div class="card">
+                <div class="k">پینگ داخلی</div>
+                <div id="pd" class="v">—</div>
+            </div>
+            <div class="card">
+                <div class="k">پینگ خارجی</div>
+                <div id="pi" class="v">—</div>
+            </div>
+            <div class="card">
+                <div class="k">پکت‌لاس</div>
+                <div id="loss" class="v">—</div>
+            </div>
+            <div class="card">
+                <div class="k">DNS سیستم</div>
+                <div id="dns" class="v">—</div>
+            </div>
+            <div class="card">
+                <div class="k">پروکسی / VPN</div>
+                <div id="prx" class="v">—</div>
+            </div>
+            <div class="card">
+                <div class="k">مودم</div>
+                <div id="gw" class="v">—</div>
+            </div>
+        </section>
+        <section>
+            <h3>تارگت‌ها</h3>
+            <div id="targets" class="targets"></div>
+        </section>
+        <section>
+            <h3>تنظیمات</h3>
+            <div class="form"><label>بازه سالم <input id="iok" type="number" min="3"></label><label>بازه اختلال <input id="ibad" type="number" min="3"></label><label>مدت اعلان <input id="psec" type="number"
+                        min="2"></label><label class="check"><input id="pen" type="checkbox"> نمایش اعلان</label><label class="check"><input id="pout" type="checkbox"> فقط هنگام قطعی اعلان بده</label><label class="check"><input id="tonline" type="checkbox"> اعلان کوتاه هنگام وصل شدن</label><label class="check"><input id="quiet" type="checkbox"> حالت سکوت (فقط رنگ آیکون)</label><label class="check"><input id="anchor" type="checkbox"> نمایش کنار آیکون تری</label><div class="full">
+                    <div class="tg-head"><span>تارگت‌های سفارشی</span><span class="help">تغییرات بلافاصله ذخیره می‌شوند</span></div>
+                    <div id="tg-list" class="tg-list"></div>
+                    <form id="tg-form" class="tg-form"><input id="tg-name" placeholder="نام (سرور شرکت)" required><input id="tg-host" dir="ltr" placeholder="185.12.34.56 یا https://panel.ir/health" required><input id="tg-port" dir="ltr" type="number" value="443" min="1" max="65535" style="width:80px"><select id="tg-kind"><option value="tcp">tcp</option><option value="http">http</option><option value="icmp">icmp</option></select><label class="chk"><input id="tg-dom" type="checkbox"> داخلی</label><label class="chk" title="اگر همهٔ تارگت‌های عمومی فیل شوند ولی این جواب دهد، گروهش وصل فرض می‌شود"><input id="tg-aff" type="checkbox"> مؤثر در وضعیت</label><select id="preset"><option value="">نمونه...</option><option value="گیت‌هاب|github.com|22|tcp|0|0">گیت‌هاب (SSH)</option><option value="تلگرام|149.154.167.220|443|tcp|0|0">تلگرام</option><option value="دیسکورد|https://discord.com/api/v9/gateway|443|http|0|0">دیسکورد</option><option value="OpenAI|https://api.openai.com|443|http|0|0">OpenAI</option><option value="دیجی‌کالا|https://www.digikala.com|443|http|1|0">دیجی‌کالا</option><option value="مودم|192.168.1.1|80|icmp|1|0">مودم/روتر</option></select><button class="btn" type="submit">＋ افزودن</button><span id="tg-err" class="err"></span></form>
+                </div><button id="save" class="btn">ذخیره</button></div>
+        </section>
+    </main>
+    <script src="app.js"></script>
+    <script src="analytics.js"></script>
+</body>
+
+</html>

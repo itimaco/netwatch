@@ -1,0 +1,13 @@
+use crate::{config::{self,Settings},history::{self,EventRow,Stats},popup::PopupPayload,probes::proxy,state::Snapshot,popup,AppState};use std::sync::atomic::Ordering::SeqCst;use tauri::{AppHandle,Manager,State};
+#[tauri::command]pub fn get_snapshot(st:State<AppState>)->Snapshot{st.snapshot.lock().clone()}
+#[tauri::command]pub fn run_now(st:State<AppState>){st.kick.notify_one()}
+#[tauri::command]pub fn get_settings(st:State<AppState>)->Settings{st.settings.read().clone()}
+#[tauri::command]pub fn set_settings(st:State<AppState>,settings:Settings)->Result<(),String>{config::save(&st.settings_path.lock(),&settings).map_err(|e|e.to_string())?;*st.settings.write()=settings;st.kick.notify_one();Ok(())}
+#[tauri::command]pub fn get_events(st:State<AppState>,limit:Option<u32>)->Vec<EventRow>{history::events(&st,limit.unwrap_or(100))}
+#[tauri::command]pub fn get_stats(st:State<AppState>,days:Option<u32>)->Stats{history::stats(&st,days.unwrap_or(1))}
+#[tauri::command]pub fn get_analytics(st:State<AppState>,period:Option<String>)->history::Analytics{history::analytics(&st,period.as_deref().unwrap_or("day"))}
+#[tauri::command]pub fn disable_proxy(st:State<AppState>)->Result<(),String>{proxy::disable().map_err(|e|e.to_string())?;st.kick.notify_one();Ok(())}
+#[tauri::command]pub fn popup_hold(st:State<AppState>,hold:bool){st.popup_hold.store(hold,SeqCst)}
+#[tauri::command]pub fn popup_close(app:AppHandle,st:State<AppState>){st.popup_gen.fetch_add(1,SeqCst);if let Some(w)=app.get_webview_window("popup"){let _=w.close();}}
+#[tauri::command]pub fn popup_ready(st:State<AppState>)->Option<PopupPayload>{st.pending_popup.lock().clone()}
+#[tauri::command]pub fn open_dashboard(app:AppHandle){popup::open_dashboard(&app)}

@@ -1,0 +1,7 @@
+use super::net::{self,Route};
+use crate::state::Sample;
+use std::net::{IpAddr,SocketAddr};
+const ICMP:&[(&str,&str)]=&[("Google-DNS","8.8.8.8"),("Cloudflare","1.1.1.1")];
+const TCP:&[(&str,&str,u16)]=&[("Google-443","8.8.8.8",443),("Cloudflare-443","1.1.1.1",443),("Quad9-443","9.9.9.9",443),("OpenDNS-443","208.67.222.222",443)];
+const HTTP:&[(&str,&str)]=&[("gstatic-204",super::URL_204),("cloudflare-cp","http://cp.cloudflare.com/"),("msft-connect","http://www.msftconnecttest.com/connecttest.txt")];
+pub async fn check(route:&Route)->Vec<Sample>{let client=net::client_via(route);let mut futs=Vec::new();if !route.is_bound(){for(name,ip)in ICMP{let address:IpAddr=ip.parse().unwrap();futs.push(tokio::spawn(async move{let ms=net::icmp(address).await;Sample{name:name.to_string(),proto:"icmp".into(),group:"international".into(),ok:ms.is_some(),ms}}));}}for(name,ip,port)in TCP{let addr=SocketAddr::new(ip.parse().unwrap(),*port);let current=route.clone();futs.push(tokio::spawn(async move{let ms=net::tcp_via(&current,addr).await;Sample{name:name.to_string(),proto:"tcp".into(),group:"international".into(),ok:ms.is_some(),ms}}));}for(name,url)in HTTP{let c=client.clone();futs.push(tokio::spawn(async move{let ms=net::http(&c,url,net::T).await;Sample{name:name.to_string(),proto:"http".into(),group:"international".into(),ok:ms.is_some(),ms}}));}let mut out=Vec::new();for f in futs{if let Ok(s)=f.await{out.push(s)}}out}

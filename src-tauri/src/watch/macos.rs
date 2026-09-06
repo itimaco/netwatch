@@ -1,0 +1,8 @@
+use super::{Trigger, Tx};
+use core_foundation::array::CFArray;
+use core_foundation::runloop::{kCFRunLoopCommonModes, CFRunLoop};
+use core_foundation::string::CFString;
+use system_configuration::dynamic_store::{SCDynamicStore, SCDynamicStoreBuilder, SCDynamicStoreCallBackContext};
+
+fn on_change(_: &SCDynamicStore, keys: CFArray<CFString>, tx: &mut Tx) { let mut trigger = Trigger::RouteChange; for key in keys.iter() { let key = key.to_string(); if key.contains("Proxies") { trigger = Trigger::ProxyChange; break; } if key.contains("/Link") || key.contains("/IPv4") { trigger = Trigger::IfaceChange; } } let _ = tx.try_send(trigger); }
+pub fn spawn(tx: Tx) { std::thread::Builder::new().name("scdynamicstore".into()).spawn(move || { let store = SCDynamicStoreBuilder::new("netwatch-ir").callback_context(SCDynamicStoreCallBackContext { callout: on_change, info: tx }).build(); let patterns = CFArray::from_CFTypes(&[CFString::new("State:/Network/Global/IPv4"), CFString::new("State:/Network/Global/IPv6"), CFString::new("State:/Network/Global/DNS"), CFString::new("State:/Network/Global/Proxies"), CFString::new("State:/Network/Interface/.*/Link"), CFString::new("Setup:/Network/Service/.*/Proxies")]); if !store.set_notification_keys(&CFArray::<CFString>::from_CFTypes(&[]), &patterns) { log::warn!("SCDynamicStore keys failed"); return; } let source = store.create_run_loop_source(); CFRunLoop::get_current().add_source(&source, unsafe { kCFRunLoopCommonModes }); CFRunLoop::run_current(); }).ok(); }

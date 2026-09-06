@@ -1,0 +1,51 @@
+{
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "NetWatch",
+    "version": "0.3.0",
+    "identifier": "ir.netwatch.application",
+    "build": {
+        "frontendDist": "../src"
+    },
+    "app": {
+        "withGlobalTauri": true,
+        "macOSPrivateApi": true,
+        "windows": [
+            {
+                "label": "main",
+                "title": "NetWatch",
+                "width": 820,
+                "height": 620,
+                "minWidth": 640,
+                "minHeight": 480,
+                "visible": false,
+                "center": true
+            }
+        ],
+        "security": {
+            "csp": null
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": [
+            "nsis",
+            "msi",
+            "dmg",
+            "app"
+        ],
+        "icon": [
+            "icons/32x32.png",
+            "icons/128x128.png",
+            "icons/icon.icns",
+            "icons/icon.ico"
+        ],
+        "windows": {
+            "webviewInstallMode": {
+                "type": "embedBootstrapper"
+            }
+        },
+        "macOS": {
+            "minimumSystemVersion": "10.15"
+        }
+    }
+}
