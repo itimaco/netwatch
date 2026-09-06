@@ -1,4 +1,4 @@
-mod commands; mod config; mod engine; mod history; mod icon; mod popup; mod probes; mod speed; mod state; mod tray; mod watch;
+mod commands; mod config; mod engine; mod history; mod hover; mod icon; mod popup; mod probes; mod speed; mod state; mod tray; mod watch;
 use parking_lot::{Mutex,RwLock};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool,AtomicU64};
