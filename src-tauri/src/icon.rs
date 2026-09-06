@@ -49,13 +49,9 @@ pub fn format_mb(bps: u64) -> String {
 
 fn text_width(text: &str) -> usize { text.chars().map(|c| if c == '.' { 1 } else { 3 }).sum::<usize>() + text.chars().count().saturating_sub(1) }
 fn blit(grid: &mut [[Option<[u8; 4]>; BASE]; BASE], rows: &[u8; 5], x: usize, y: usize, color: [u8; 4]) { for (dy, row) in rows.iter().enumerate() { for dx in 0..3 { if row & (0b100 >> dx) != 0 { if let Some(cell) = grid.get_mut(y + dy).and_then(|line| line.get_mut(x + dx)) { *cell = Some(color); } } } } }
-fn draw_line(grid: &mut [[Option<[u8; 4]>; BASE]; BASE], arrow: &[u8; 5], arrow_color: [u8; 4], text: &str, y: usize) { blit(grid, arrow, 0, y, arrow_color); let mut x = BASE - text_width(text); for character in text.chars() { if character == '.' { if let Some(cell) = grid[y + 4].get_mut(x) { *cell = Some(TEXT); } x += 2; } else if let Some(digit) = character.to_digit(10) { blit(grid, &GLYPH[digit as usize], x, y, TEXT); x += 4; } } }
 
-pub fn speed(down: &str, up: &str, state_color: [u8; 4], scale: usize) -> Image<'static> {
-	let mut grid = [[None; BASE]; BASE];
-	draw_line(&mut grid, &ARROW_DOWN, DL, down, 1); draw_line(&mut grid, &ARROW_UP, UL, up, 8);
-	for y in 14..16 { for x in 0..BASE { grid[y][x] = Some(state_color); } }
-	let scale = scale.clamp(1, 4); let size = BASE * scale; let mut buffer = vec![0u8; size * size * 4];
-	for y in 0..size { for x in 0..size { if let Some(color) = grid[y / scale][x / scale] { let index = (y * size + x) * 4; buffer[index..index + 4].copy_from_slice(&color); } } }
-	Image::new_owned(buffer, size as u32, size as u32)
-}
+type Grid = [[Option<[u8; 4]>; BASE]; BASE];
+fn render(grid: &Grid, scale: usize) -> Image<'static> { let scale = scale.clamp(1, 4); let size = BASE * scale; let mut buffer = vec![0u8; size * size * 4]; for y in 0..size { for x in 0..size { if let Some(color) = grid[y / scale][x / scale] { let index = (y * size + x) * 4; buffer[index..index + 4].copy_from_slice(&color); } } } Image::new_owned(buffer, size as u32, size as u32) }
+fn draw_line_at(grid: &mut Grid, arrow: &[u8; 5], arrow_color: [u8; 4], text: &str, text_color: [u8; 4], y: usize, right: usize) { blit(grid, arrow, 1, y, arrow_color); let mut x = right - text_width(text); for character in text.chars() { if character == '.' { if let Some(cell) = grid[y + 4].get_mut(x) { *cell = Some(text_color); } x += 2; } else if let Some(digit) = character.to_digit(10) { blit(grid, &GLYPH[digit as usize], x, y, text_color); x += 4; } } }
+pub fn speed_text(down: &str, up: &str, scale: usize) -> Image<'static> { let mut grid: Grid = [[None; BASE]; BASE]; draw_line_at(&mut grid, &ARROW_DOWN, DL, down, TEXT, 2, BASE); draw_line_at(&mut grid, &ARROW_UP, UL, up, TEXT, 9, BASE); render(&grid, scale) }
+pub fn badge(down: &str, up: &str, background: [u8; 4], scale: usize) -> Image<'static> { let luminance = 0.2126 * background[0] as f32 + 0.7152 * background[1] as f32 + 0.0722 * background[2] as f32; let text_color = if luminance > 150.0 { [12, 12, 16, 255] } else { [255, 255, 255, 255] }; let mut grid: Grid = [[Some(background); BASE]; BASE]; for &(x, y) in &[(0, 0), (BASE - 1, 0), (0, BASE - 1), (BASE - 1, BASE - 1)] { grid[y][x] = None; } draw_line_at(&mut grid, &ARROW_DOWN, text_color, down, text_color, 2, BASE - 1); draw_line_at(&mut grid, &ARROW_UP, text_color, up, text_color, 9, BASE - 1); render(&grid, scale) }

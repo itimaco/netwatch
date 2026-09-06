@@ -57,7 +57,8 @@ async function loadSettings() {
   $("tonline").checked = settings.toast_online;
   $("quiet").checked = settings.quiet;
   $("anchor").checked = settings.anchor_tray;
-  $("trspeed").checked = settings.tray_speed;
+  $("trlayout").value = settings.tray_layout;
+  if (!navigator.platform.startsWith("Mac")) $("trlayout").querySelector("[data-mac]")?.remove();
   targets = (settings.custom_targets || []).map((target) => ({ ...target, enabled: target.enabled !== false }));
   renderTargets();
 }
@@ -102,7 +103,7 @@ $("save").onclick = async () => {
   settings.toast_online = $("tonline").checked;
   settings.quiet = $("quiet").checked;
   settings.anchor_tray = $("anchor").checked;
-  settings.tray_speed = $("trspeed").checked;
+  settings.tray_layout = $("trlayout").value;
   await invoke("set_settings", { settings });
   alert("ذخیره شد");
 };
