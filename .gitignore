@@ -5,3 +5,4 @@ src-tauri/target/
 !.env.example
 .DS_Store
 Thumbs.db
+task*

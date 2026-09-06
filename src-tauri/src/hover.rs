@@ -14,7 +14,12 @@ fn position(app: &AppHandle) -> (f64, f64) {
     if cfg!(target_os = "macos") { (monitor_width - W - 12.0, 36.0) } else { (monitor_width - W - 12.0, monitor_height - H - 56.0) }
 }
 
-pub fn payload(app: &AppHandle) -> serde_json::Value { let state = app.state::<AppState>(); let snapshot = state.snapshot.lock().clone(); let speed = state.speed.lock().clone(); serde_json::json!({"snap":snapshot,"title":snapshot.state.title(),"hint":snapshot.state.hint(),"color":snapshot.state.hex(),"rx":crate::speed::fmt(speed.rx_bps,true),"tx":crate::speed::fmt(speed.tx_bps,true)}) }
+pub fn payload(app: &AppHandle) -> serde_json::Value {
+    let st = app.state::<AppState>();
+    let snap = { st.snapshot.lock().clone() };
+    let (rx, tx) = { let sp = st.speed.lock(); (sp.rx_bps, sp.tx_bps) };
+    serde_json::json!({"snap":snap,"title":snap.state.title(),"hint":snap.state.hint(),"color":snap.state.hex(),"rx":crate::speed::fmt(rx,true),"tx":crate::speed::fmt(tx,true)})
+}
 pub fn schedule_show(app: &AppHandle) { let generation = GEN.fetch_add(1, SeqCst) + 1; let app = app.clone(); tauri::async_runtime::spawn(async move { tokio::time::sleep(Duration::from_millis(350)).await; if GEN.load(SeqCst) != generation { return; } let (x, y) = position(&app); let window = match app.get_webview_window("hover") { Some(window) => { let _ = window.set_position(LogicalPosition::new(x, y)); window }, None => match WebviewWindowBuilder::new(&app, "hover", WebviewUrl::App("hover.html".into())).title("NetWatch").decorations(false).transparent(true).always_on_top(true).skip_taskbar(true).resizable(false).focused(false).shadow(false).visible(false).inner_size(W, H).position(x, y).build() { Ok(window) => { tokio::time::sleep(Duration::from_millis(200)).await; window }, Err(_) => return } }; if GEN.load(SeqCst) != generation { return; } let _ = window.emit("hover-data", payload(&app)); let _ = window.show(); }); }
 pub fn schedule_hide(app: &AppHandle) { GEN.fetch_add(1, SeqCst); let app = app.clone(); tauri::async_runtime::spawn(async move { tokio::time::sleep(Duration::from_millis(200)).await; if let Some(window) = app.get_webview_window("hover") { let _ = window.hide(); } }); }
 pub fn refresh(app: &AppHandle) { if let Some(window) = app.get_webview_window("hover") { if window.is_visible().unwrap_or(false) { let _ = window.emit("hover-data", payload(app)); } } }

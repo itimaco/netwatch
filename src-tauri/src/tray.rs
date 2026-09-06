@@ -16,6 +16,9 @@ const LAYOUTS: &[(&str, &str)] = &[("dual", "دو آیکون: وضعیت + سر�
 fn layout(app: &AppHandle) -> String { app.state::<AppState>().settings.read().tray_layout.clone() }
 fn shape(state: NetState) -> icon::Shape { if state == NetState::Unstable { icon::Shape::Ring } else { icon::Shape::Solid } }
 fn dpi_scale(app: &AppHandle) -> usize { if cfg!(target_os = "macos") { return 2; } app.primary_monitor().ok().flatten().map(|monitor| monitor.scale_factor().round() as usize).unwrap_or(1).clamp(1, 4) }
+pub fn on_main(app: &AppHandle, f: impl FnOnce(&AppHandle) + Send + 'static) { let a = app.clone(); let _ = app.run_on_main_thread(move || f(&a)); }
+const RLM: &str = "\u{200F}";
+fn ltr(v: impl std::fmt::Display) -> String { format!("\u{2066}{v}\u{2069}") }
 
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "داشبورد و آمار", true, None::<&str>)?;
@@ -51,21 +54,26 @@ pub fn ensure_speed_tray(app: &AppHandle) -> tauri::Result<()> {
 }
 
 pub fn on_speed(app: &AppHandle, rx_bps: u64, tx_bps: u64) {
-    let state = app.state::<AppState>().snapshot.lock().state;
+    let state = { app.state::<AppState>().snapshot.lock().state };
     let key = (icon::format_mb(rx_bps), icon::format_mb(tx_bps), state);
-    { let mut last = LAST_SPEED.lock(); if last.as_ref() == Some(&key) { return; } *last = Some(key.clone()); }
-    match layout(app).as_str() {
-        "dual" => if let Some(tray) = app.tray_by_id(SPEED_TRAY_ID) { let _ = tray.set_icon(Some(icon::speed_text(&key.0, &key.1, dpi_scale(app)))); let _ = tray.set_tooltip(Some(format!("↓ {} MB/s   ↑ {} MB/s", key.0, key.1))); },
-        "badge" => if let Some(tray) = app.tray_by_id(TRAY_ID) { let _ = tray.set_icon(Some(icon::badge(&key.0, &key.1, state.color(), dpi_scale(app)))); *LAST_ICON.lock() = None; },
-        "title" => if let Some(tray) = app.tray_by_id(TRAY_ID) { let _ = tray.set_title(Some(format!("↓{} ↑{}", key.0, key.1))); },
+    { let mut l = LAST_SPEED.lock(); if l.as_ref() == Some(&key) { return; } *l = Some(key.clone()); }
+    let (down, up) = (key.0.clone(), key.1.clone());
+    let lay = layout(app);
+    let scale = dpi_scale(app);
+    let img = match lay.as_str() { "dual" => Some(icon::speed_text(&down, &up, scale)), "badge" => Some(icon::badge(&down, &up, state.color(), scale)), _ => None };
+    on_main(app, move |a| match lay.as_str() {
+        "dual" => if let Some(t) = a.tray_by_id(SPEED_TRAY_ID) { let _ = t.set_icon(img); let _ = t.set_tooltip(Some(format!("{RLM}دانلود: {}  ·  آپلود: {}", ltr(format!("{down} MB/s")), ltr(format!("{up} MB/s"))))); },
+        "badge" => if let Some(t) = a.tray_by_id(TRAY_ID) { let _ = t.set_icon(img); *LAST_ICON.lock() = None; },
+        "title" => if let Some(t) = a.tray_by_id(TRAY_ID) { let _ = t.set_title(Some(format!("↓{down} ↑{up}"))); },
         _ => {}
-    }
+    });
 }
 
 pub fn set_state_icon(app: &AppHandle, state: NetState) {
-    if layout(app) == "badge" { let state = app.state::<AppState>(); let (rx, tx) = { let speed = state.speed.lock(); (speed.rx_bps, speed.tx_bps) }; *LAST_SPEED.lock() = None; on_speed(app, rx, tx); return; }
-    let mut last = LAST_ICON.lock(); if *last == Some(state) { return; }
-    if let Some(tray) = app.tray_by_id(TRAY_ID) { if tray.set_icon(Some(icon::make(state.color(), shape(state), None))).is_ok() { *last = Some(state); } }
+    if layout(app) == "badge" { let state_ref = app.state::<AppState>(); let (rx, tx) = { let speed = state_ref.speed.lock(); (speed.rx_bps, speed.tx_bps) }; *LAST_SPEED.lock() = None; on_speed(app, rx, tx); return; }
+    if *LAST_ICON.lock() == Some(state) { return; }
+    let img = icon::make(state.color(), shape(state), None);
+    on_main(app, move |a| { if let Some(t) = a.tray_by_id(TRAY_ID) { if t.set_icon(Some(img)).is_ok() { *LAST_ICON.lock() = Some(state); } } });
 }
 
 pub fn refresh_icon(app: &AppHandle) { let _ = ensure_speed_tray(app); *LAST_ICON.lock() = None; *LAST_SPEED.lock() = None; let state = app.state::<AppState>().snapshot.lock().state; set_state_icon(app, state); sync_layout_menu(app); }
@@ -73,10 +81,22 @@ fn sync_layout_menu(app: &AppHandle) { let current = layout(app); if let Some(it
 
 pub fn spin(app: &AppHandle) -> Option<JoinHandle<()>> {
     if cfg!(target_os = "linux") || layout(app) == "badge" { return None; }
-    let app = app.clone(); Some(tauri::async_runtime::spawn(async move { let state = app.state::<AppState>(); let mut index = 0u32; tokio::time::sleep(Duration::from_millis(400)).await; while state.checking.load(SeqCst) { let current = state.snapshot.lock().state; if let Some(tray) = app.tray_by_id(TRAY_ID) { let _ = tray.set_icon(Some(icon::make(current.color(), shape(current), Some(index as f32 * 0.785)))); *LAST_ICON.lock() = None; } index = (index + 1) % 8; tokio::time::sleep(Duration::from_millis(120)).await; } }))
+    let app = app.clone();
+    Some(tauri::async_runtime::spawn(async move {
+        let st = app.state::<AppState>();
+        let mut i = 0u32;
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        while st.checking.load(SeqCst) {
+            let state_val = { st.snapshot.lock().state };
+            let img = icon::make(state_val.color(), shape(state_val), Some(i as f32 * 0.785));
+            on_main(&app, move |a| { if let Some(t) = a.tray_by_id(TRAY_ID) { let _ = t.set_icon(Some(img)); } });
+            *LAST_ICON.lock() = None;
+            i = (i + 1) % 8;
+            tokio::time::sleep(Duration::from_millis(120)).await;
+        }
+    }))
 }
 
-fn isolate(value: impl std::fmt::Display) -> String { format!("\u{2066}{value}\u{2069}") }
-fn tooltip_text(app: &AppHandle, snapshot: &Snapshot) -> String { let state = app.state::<AppState>(); let format_ms = |value: Option<u32>| value.map(|ms| isolate(format!("{ms} ms"))).unwrap_or_else(|| "—".into()); let (rx, tx) = { let speed = state.speed.lock(); (crate::speed::fmt(speed.rx_bps, true), crate::speed::fmt(speed.tx_bps, true)) }; let mut lines = vec![format!("\u{200F}{} {}", snapshot.state.emoji(), snapshot.state.title()), format!("داخلی: {}  ·  خارجی: {}", format_ms(snapshot.domestic_ping), format_ms(snapshot.international_ping)), format!("دانلود: {}  ·  آپلود: {}", isolate(rx), isolate(tx))]; if let Some(note) = &snapshot.note { lines.push(format!("\u{200F}{note}")); } lines.join("\n") }
-pub fn update_tooltip(app: &AppHandle, snapshot: &Snapshot) { if let Some(tray) = app.tray_by_id(TRAY_ID) { let text = if cfg!(target_os = "linux") { tooltip_text(app, snapshot) } else { format!("\u{200F}NetWatch — {}", snapshot.state.title()) }; let _ = tray.set_tooltip(Some(text)); } crate::hover::refresh(app); }
+fn tooltip_text(app: &AppHandle, snapshot: &Snapshot) -> String { let state = app.state::<AppState>(); let format_ms = |value: Option<u32>| value.map(|ms| ltr(format!("{ms} ms"))).unwrap_or_else(|| "—".into()); let (rx, tx) = { let speed = state.speed.lock(); (crate::speed::fmt(speed.rx_bps, true), crate::speed::fmt(speed.tx_bps, true)) }; let mut lines = vec![format!("{RLM}{} {}", snapshot.state.emoji(), snapshot.state.title()), format!("داخلی: {}  ·  خارجی: {}", format_ms(snapshot.domestic_ping), format_ms(snapshot.international_ping)), format!("دانلود: {}  ·  آپلود: {}", ltr(rx), ltr(tx))]; if let Some(note) = &snapshot.note { lines.push(format!("{RLM}{note}")); } lines.join("\n") }
+pub fn update_tooltip(app: &AppHandle, snapshot: &Snapshot) { let text = if cfg!(target_os = "linux") { tooltip_text(app, snapshot) } else { format!("{RLM}NetWatch — {}", snapshot.state.title()) }; on_main(app, move |a| { if let Some(t) = a.tray_by_id(TRAY_ID) { let _ = t.set_tooltip(Some(text)); } crate::hover::refresh(a); }); }
 pub fn update(app: &AppHandle, snapshot: &Snapshot) { set_state_icon(app, snapshot.state); update_tooltip(app, snapshot); }

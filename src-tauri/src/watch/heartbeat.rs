@@ -34,7 +34,7 @@ pub async fn run(app: AppHandle, tx: Tx) {
         let (international_result, domestic_result) = tokio::join!(net::tcp(international_address), net::tcp(domestic_address));
         let (international_change, slow) = international.feed(international_result);
         let (domestic_change, _) = domestic.feed(domestic_result);
-        { let mut snapshot = state.snapshot.lock(); let ewma = |old: Option<u32>, new: Option<u32>| match (old, new) { (Some(old), Some(new)) => Some(((old as f32) * 0.7 + (new as f32) * 0.3) as u32), (None, new) => new, (old, None) => old }; snapshot.international_ping = ewma(snapshot.international_ping, international_result); snapshot.domestic_ping = ewma(snapshot.domestic_ping, domestic_result); tray::update_tooltip(&app, &snapshot); }
+        let tooltip_snapshot = { let mut snapshot = state.snapshot.lock(); let ewma = |old: Option<u32>, new: Option<u32>| match (old, new) { (Some(old), Some(new)) => Some(((old as f32) * 0.7 + (new as f32) * 0.3) as u32), (None, new) => new, (old, None) => old }; snapshot.international_ping = ewma(snapshot.international_ping, international_result); snapshot.domestic_ping = ewma(snapshot.domestic_ping, domestic_result); snapshot.clone() }; tray::update_tooltip(&app, &tooltip_snapshot);
         let trigger = match (international_change, domestic_change) { (Some(false), _) | (_, Some(false)) => Some(Trigger::HeartbeatDown), (Some(true), _) | (_, Some(true)) => Some(Trigger::HeartbeatUp), _ if slow => Some(Trigger::HeartbeatSlow), _ => None };
         if let Some(trigger) = trigger { let _ = tx.try_send(trigger); }
     }
