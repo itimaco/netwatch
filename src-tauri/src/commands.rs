@@ -4,7 +4,7 @@ use crate::{config::{self,Settings},history::{self,EventRow,Stats},popup::PopupP
 #[tauri::command]pub async fn speed_test(app:AppHandle)->Result<crate::speed::SpeedTest,String>{let state=app.state::<AppState>();let(down,up)={let settings=state.settings.read();(settings.speedtest_down.clone(),settings.speedtest_up.clone())};crate::speed::test(app,&down,&up).await.map_err(|error|error.to_string())}
 #[tauri::command]pub fn run_now(st:State<AppState>){st.kick.notify_one()}
 #[tauri::command]pub fn get_settings(st:State<AppState>)->Settings{st.settings.read().clone()}
-#[tauri::command]pub fn set_settings(st:State<AppState>,settings:Settings)->Result<(),String>{config::save(&st.settings_path.lock(),&settings).map_err(|e|e.to_string())?;*st.settings.write()=settings;st.kick.notify_one();Ok(())}
+#[tauri::command]pub fn set_settings(app:AppHandle,st:State<AppState>,settings:Settings)->Result<(),String>{config::save(&st.settings_path.lock(),&settings).map_err(|e|e.to_string())?;*st.settings.write()=settings;crate::tray::refresh_icon(&app);st.kick.notify_one();Ok(())}
 #[tauri::command]pub fn get_events(st:State<AppState>,limit:Option<u32>)->Vec<EventRow>{history::events(&st,limit.unwrap_or(100))}
 #[tauri::command]pub fn get_stats(st:State<AppState>,days:Option<u32>)->Stats{history::stats(&st,days.unwrap_or(1))}
 #[tauri::command]pub fn get_analytics(st:State<AppState>,period:Option<String>)->history::Analytics{history::analytics(&st,period.as_deref().unwrap_or("day"))}
