@@ -53,6 +53,12 @@
                 <div id="gw" class="v">—</div>
             </div>
         </section>
+        <section class="glass speed">
+            <div class="g-title">سرعت لحظه‌ای سیستم <span id="sp-iface" class="g-hint"></span><button id="sp-unit" class="unit" title="تغییر واحد">Mb/s</button></div>
+            <div class="sp-nums"><div class="sp-n dl"><span class="arr">↓</span><div><b id="sp-rx">۰</b><small id="sp-rxu"></small><em id="sp-rxp"></em></div></div><div class="sp-n ul"><span class="arr">↑</span><div><b id="sp-tx">۰</b><small id="sp-txu"></small><em id="sp-txp"></em></div></div></div>
+            <canvas id="sp-chart" height="70"></canvas>
+            <div class="sp-foot"><span id="sp-total" class="g-hint"></span><div class="sp-test"><button id="sp-test-btn" class="btn ghost">⚡ تست سرعت</button><span id="sp-test-res"></span></div></div>
+        </section>
         <section>
             <h3>تارگت‌ها</h3>
             <div id="targets" class="targets"></div>
@@ -68,6 +74,7 @@
         </section>
     </main>
     <script src="app.js"></script>
+    <script src="speed.js"></script>
     <script src="analytics.js"></script>
 </body>
 
