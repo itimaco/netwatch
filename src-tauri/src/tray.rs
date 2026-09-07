@@ -16,7 +16,8 @@ static LAST_DOWN: Mutex<Option<String>> = Mutex::new(None);
 static LAST_UP: Mutex<Option<String>> = Mutex::new(None);
 static LAYOUT_ITEMS: Mutex<Option<Vec<(&'static str, CheckMenuItem<tauri::Wry>)>>> = Mutex::new(None);
 static TOGGLE_ITEMS: Mutex<Option<(CheckMenuItem<tauri::Wry>, CheckMenuItem<tauri::Wry>)>> = Mutex::new(None);
-const LAYOUTS: &[(&str, &str)] = &[("separate", "آیکون‌های جدا: وضعیت + دانلود + آپلود"), ("dual", "دو آیکون: وضعیت + سرعت (ترکیبی)"), ("badge", "یک آیکون: سرعت روی رنگ وضعیت"), ("title", "متن کنار آیکون (فقط مک)"), ("circle", "فقط دایره وضعیت")];
+static MENU: Mutex<Option<Menu<tauri::Wry>>> = Mutex::new(None);
+const LAYOUTS: &[(&str, &str)] = &[("widget", "ویجت روی تسک‌بار — پیشنهادی (ویندوز)"), ("separate", "آیکون‌های جدا: وضعیت + دانلود + آپلود"), ("dual", "دو آیکون: وضعیت + سرعت (ترکیبی)"), ("badge", "یک آیکون: سرعت روی رنگ وضعیت"), ("title", "متن کنار آیکون (فقط مک)"), ("circle", "فقط دایره وضعیت")];
 
 fn layout(app: &AppHandle) -> String { app.state::<AppState>().settings.read().tray_layout.clone() }
 fn shape(state: NetState) -> icon::Shape { if state == NetState::Unstable { icon::Shape::Ring } else { icon::Shape::Solid } }
@@ -24,6 +25,7 @@ fn dpi_scale(app: &AppHandle) -> usize { if cfg!(target_os = "macos") { return 2
 pub fn on_main(app: &AppHandle, f: impl FnOnce(&AppHandle) + Send + 'static) { let a = app.clone(); let _ = app.run_on_main_thread(move || f(&a)); }
 const RLM: &str = "\u{200F}";
 fn ltr(v: impl std::fmt::Display) -> String { format!("\u{2066}{v}\u{2069}") }
+pub fn menu() -> Option<Menu<tauri::Wry>> { MENU.lock().clone() }
 
 fn build_aux_tray(app: &AppHandle, id: &str, img: tauri::image::Image<'static>, tip: &str) -> tauri::Result<()> {
     TrayIconBuilder::with_id(id)
@@ -54,9 +56,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "داشبورد و آمار", true, None::<&str>)?;
     let check = MenuItem::with_id(app, "check", "بررسی مجدد", true, None::<&str>)?;
     let proxy_item = MenuItem::with_id(app, "proxy", "خاموش‌کردن پروکسی سیستم", true, None::<&str>)?;
+    #[cfg(windows)]
+    let rebuild = MenuItem::with_id(app, "widget_rebuild", "بازسازی ویجت تسک‌بار", true, None::<&str>)?;
     let quiet = CheckMenuItem::with_id(app, "quiet", "حالت سکوت", true, false, None::<&str>)?;
     let mut items = Vec::new();
-    for (id, label) in LAYOUTS { if *id == "title" && !cfg!(target_os = "macos") { continue; } items.push((*id, CheckMenuItem::with_id(app, format!("layout:{id}"), *label, true, layout(app) == *id, None::<&str>)?)); }
+    for (id, label) in LAYOUTS { if (*id == "title" && !cfg!(target_os = "macos")) || (*id == "widget" && !cfg!(windows)) { continue; } items.push((*id, CheckMenuItem::with_id(app, format!("layout:{id}"), *label, true, layout(app) == *id, None::<&str>)?)); }
     let state = app.state::<AppState>();
     let settings = state.settings.read();
     let d0 = settings.tray_down;
@@ -71,12 +75,16 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     *TOGGLE_ITEMS.lock() = Some((t_down, t_up));
     let quit = MenuItem::with_id(app, "quit", "خروج", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
+    #[cfg(windows)]
+    let menu = Menu::with_items(app, &[&open, &check, &proxy_item, &quiet, &layout_menu, &rebuild, &separator, &quit])?;
+    #[cfg(not(windows))]
     let menu = Menu::with_items(app, &[&open, &check, &proxy_item, &quiet, &layout_menu, &separator, &quit])?;
+    *MENU.lock() = Some(menu.clone());
     TrayIconBuilder::with_id(TRAY_ID).icon(icon::make([120,120,120,255], icon::Shape::Solid, None)).tooltip("NetWatch").menu(&menu).show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
             if let Some(value) = event.id().as_ref().strip_prefix("layout:") { let state = app.state::<AppState>(); { let mut settings = state.settings.write(); settings.tray_layout = value.into(); let _ = config::save(&state.settings_path.lock(), &settings); } refresh_icon(app); return; }
             if let Some(which) = event.id().as_ref().strip_prefix("toggle:") { let st = app.state::<AppState>(); { let mut settings = st.settings.write(); if which == "down" { settings.tray_down = !settings.tray_down; } else { settings.tray_up = !settings.tray_up; } if settings.tray_layout != "separate" && (settings.tray_down || settings.tray_up) { settings.tray_layout = "separate".into(); } let _ = config::save(&st.settings_path.lock(), &settings); } refresh_icon(app); return; }
-            match event.id().as_ref() { "open" => popup::open_dashboard(app), "check" => app.state::<AppState>().kick.notify_one(), "proxy" => { let _ = proxy::disable(); app.state::<AppState>().kick.notify_one(); }, "quiet" => { let state = app.state::<AppState>(); let mut settings = state.settings.write(); settings.quiet = !settings.quiet; let _ = config::save(&state.settings_path.lock(), &settings); }, "quit" => app.exit(0), _ => {} }
+            match event.id().as_ref() { "open" => popup::open_dashboard(app), "check" => app.state::<AppState>().kick.notify_one(), "proxy" => { let _ = proxy::disable(); app.state::<AppState>().kick.notify_one(); }, "quiet" => { let state = app.state::<AppState>(); let mut settings = state.settings.write(); settings.quiet = !settings.quiet; let _ = config::save(&state.settings_path.lock(), &settings); }, "widget_rebuild" => { #[cfg(windows)] crate::taskbar::rebuild(app); }, "quit" => app.exit(0), _ => {} }
         })
         .on_tray_icon_event(|tray, event| { let app = tray.app_handle(); match event { TrayIconEvent::Enter { .. } => { let state = app.state::<AppState>(); if state.last_check.lock().elapsed() > Duration::from_secs(3) && !state.checking.load(SeqCst) { state.kick.notify_one(); } crate::hover::schedule_show(&app); }, TrayIconEvent::Leave { .. } => crate::hover::schedule_hide(&app), TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => { crate::hover::schedule_hide(&app); popup::open_dashboard(&app); }, _ => {} } })
         .build(app)?;
@@ -89,6 +97,8 @@ pub fn ensure_speed_tray(app: &AppHandle) -> tauri::Result<()> {
     let lay = settings.tray_layout.clone();
     let down = settings.tray_down;
     let up = settings.tray_up;
+    #[cfg(windows)]
+    crate::taskbar::ensure(app, lay == "widget");
     let k = dpi_scale(app);
     sync_tray(app, SPEED_TRAY_ID, lay == "dual", || icon::speed_text("0.0", "0.0", k), "NetWatch — سرعت")?;
     sync_tray(app, DOWN_TRAY_ID, lay == "separate" && down, || icon::speed_single("0.0", true, k), "NetWatch — دانلود")?;

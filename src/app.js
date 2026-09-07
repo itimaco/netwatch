@@ -58,9 +58,18 @@ async function loadSettings() {
   $("quiet").checked = settings.quiet;
   $("anchor").checked = settings.anchor_tray;
   $("trlayout").value = settings.tray_layout ?? "separate";
+  const isWindows = navigator.userAgent.includes("Windows");
+  if (!isWindows) {
+    $("trlayout").querySelector("[data-win]")?.remove();
+    $("wpill-row").hidden = true;
+    if ($("trlayout").value === "widget") $("trlayout").value = "separate";
+  }
+  $("wpill").checked = !!settings.widget_pill;
+  $("wfs").checked = !!settings.widget_hide_fullscreen;
   $("trdown").checked = settings.tray_down !== false;
   $("trup").checked = settings.tray_up !== false;
   $("trsep").classList.toggle("hidden", $("trlayout").value !== "separate");
+  $("wpill-row").hidden = !isWindows || $("trlayout").value !== "widget";
   if (!navigator.platform.startsWith("Mac")) $("trlayout").querySelector("[data-mac]")?.remove();
   targets = (settings.custom_targets || []).map((target) => ({ ...target, enabled: target.enabled !== false }));
   renderTargets();
@@ -109,6 +118,8 @@ $("save").onclick = async () => {
   settings.tray_layout = $("trlayout").value;
   settings.tray_down = $("trdown").checked;
   settings.tray_up = $("trup").checked;
+  settings.widget_pill = $("wpill").checked;
+  settings.widget_hide_fullscreen = $("wfs").checked;
   await invoke("set_settings", { settings });
   $("trsep").classList.toggle("hidden", $("trlayout").value !== "separate");
   alert("ذخیره شد");
@@ -116,6 +127,7 @@ $("save").onclick = async () => {
 
 $("trlayout").onchange = () => {
   $("trsep").classList.toggle("hidden", $("trlayout").value !== "separate");
+  $("wpill-row").hidden = !navigator.userAgent.includes("Windows") || $("trlayout").value !== "widget";
 };
 listen("snapshot", (event) => { lastSnap = event.payload; render(event.payload); renderTargets(); });
 invoke("get_snapshot").then(render);

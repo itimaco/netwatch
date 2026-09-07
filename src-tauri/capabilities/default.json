@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "windows": ["main", "popup", "hover"],
+  "windows": ["main", "popup", "hover", "widget"],
   "permissions": [
     "core:default",
     "core:window:allow-close",

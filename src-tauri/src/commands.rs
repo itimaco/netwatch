@@ -13,3 +13,7 @@ use crate::{config::{self,Settings},history::{self,EventRow,Stats},popup::PopupP
 #[tauri::command]pub fn popup_close(app:AppHandle,st:State<AppState>){st.popup_gen.fetch_add(1,SeqCst);if let Some(w)=app.get_webview_window("popup"){let _=w.close();}}
 #[tauri::command]pub fn popup_ready(st:State<AppState>)->Option<PopupPayload>{st.pending_popup.lock().clone()}
 #[tauri::command]pub fn open_dashboard(app:AppHandle){popup::open_dashboard(&app)}
+#[tauri::command]pub fn widget_menu(app:AppHandle){#[cfg(windows)]crate::taskbar::popup_menu(&app)}
+#[tauri::command]pub fn widget_hover(app:AppHandle,on:bool){#[cfg(windows)]crate::taskbar::hover(&app,on)}
+#[tauri::command]pub fn widget_alive(visible:bool){#[cfg(windows)]crate::taskbar::alive(visible);#[cfg(not(windows))]let _=visible;}
+#[tauri::command]pub fn widget_rebuild(app:AppHandle){#[cfg(windows)]crate::taskbar::rebuild(&app);#[cfg(not(windows))]let _=app;}
