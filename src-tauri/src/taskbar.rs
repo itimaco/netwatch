@@ -16,7 +16,7 @@ use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 pub const LABEL: &str = "widget";
-const W: f64 = 88.0;
+const W: f64 = 72.0;
 const GAP: f64 = 6.0;
 pub static RECT_L: Mutex<Option<(f64, f64, f64, f64)>> = Mutex::new(None);
 
