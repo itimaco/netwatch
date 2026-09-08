@@ -35,9 +35,9 @@ fn build_aux_tray(app: &AppHandle, id: &str, img: tauri::image::Image<'static>, 
         .on_tray_icon_event(|tray, event| {
             let app = tray.app_handle();
             match event {
-                TrayIconEvent::Enter { .. } => crate::hover::schedule_show(&app),
+                TrayIconEvent::Enter { .. } => { popup::close(&app); crate::hover::schedule_show(&app); },
                 TrayIconEvent::Leave { .. } => crate::hover::schedule_hide(&app),
-                TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => { crate::hover::schedule_hide(&app); popup::open_dashboard(&app); },
+                TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => { popup::close(&app); crate::hover::schedule_hide(&app); popup::open_dashboard(&app); },
                 _ => {}
             }
         })
@@ -86,7 +86,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             if let Some(which) = event.id().as_ref().strip_prefix("toggle:") { let st = app.state::<AppState>(); { let mut settings = st.settings.write(); if which == "down" { settings.tray_down = !settings.tray_down; } else { settings.tray_up = !settings.tray_up; } if settings.tray_layout != "separate" && (settings.tray_down || settings.tray_up) { settings.tray_layout = "separate".into(); } let _ = config::save(&st.settings_path.lock(), &settings); } refresh_icon(app); return; }
             match event.id().as_ref() { "open" => popup::open_dashboard(app), "check" => app.state::<AppState>().kick.notify_one(), "proxy" => { let _ = proxy::disable(); app.state::<AppState>().kick.notify_one(); }, "quiet" => { let state = app.state::<AppState>(); let mut settings = state.settings.write(); settings.quiet = !settings.quiet; let _ = config::save(&state.settings_path.lock(), &settings); }, "widget_rebuild" => { #[cfg(windows)] crate::taskbar::rebuild(app); }, "quit" => app.exit(0), _ => {} }
         })
-        .on_tray_icon_event(|tray, event| { let app = tray.app_handle(); match event { TrayIconEvent::Enter { .. } => { let state = app.state::<AppState>(); if state.last_check.lock().elapsed() > Duration::from_secs(3) && !state.checking.load(SeqCst) { state.kick.notify_one(); } crate::hover::schedule_show(&app); }, TrayIconEvent::Leave { .. } => crate::hover::schedule_hide(&app), TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => { crate::hover::schedule_hide(&app); popup::open_dashboard(&app); }, _ => {} } })
+        .on_tray_icon_event(|tray, event| { let app = tray.app_handle(); match event { TrayIconEvent::Enter { .. } => { let state = app.state::<AppState>(); if state.last_check.lock().elapsed() > Duration::from_secs(3) && !state.checking.load(SeqCst) { state.kick.notify_one(); } popup::close(&app); crate::hover::schedule_show(&app); }, TrayIconEvent::Leave { .. } => crate::hover::schedule_hide(&app), TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } => { popup::close(&app); crate::hover::schedule_hide(&app); popup::open_dashboard(&app); }, _ => {} } })
         .build(app)?;
     Ok(())
 }

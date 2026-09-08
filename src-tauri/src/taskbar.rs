@@ -51,7 +51,7 @@ pub fn alive(visible: bool) {
 }
 pub fn rebuild(_app: &AppHandle) { REBUILD_REQ.store(true, SeqCst); wake().notify_one(); }
 
-struct Bar { hwnd: HWND, pid: u32, rc: RECT, tray: RECT, scale: f64 }
+struct Bar { pid: u32, rc: RECT, tray: RECT, scale: f64 }
 fn taskbar() -> Option<Bar> {
     unsafe {
         let hwnd = FindWindowW(wide("Shell_TrayWnd").as_ptr(), std::ptr::null());
@@ -61,7 +61,7 @@ fn taskbar() -> Option<Bar> {
         let rc = rect(hwnd)?;
         let tray = if notify.is_null() { RECT { left: rc.right - 1, ..rc } } else { rect(notify)? };
         let dpi = GetDpiForWindow(hwnd);
-        Some(Bar { hwnd, pid, rc, tray, scale: if dpi == 0 { 1.0 } else { dpi as f64 / 96.0 } })
+        Some(Bar { pid, rc, tray, scale: if dpi == 0 { 1.0 } else { dpi as f64 / 96.0 } })
     }
 }
 
@@ -87,13 +87,6 @@ fn style(h: HWND) {
         let ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
         SetWindowLongPtrW(h, GWL_EXSTYLE, (ex | WS_EX_TOOLWINDOW as isize | WS_EX_NOACTIVATE as isize) & !(WS_EX_APPWINDOW as isize));
         SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
-    }
-}
-fn below(h: HWND, bar: HWND) -> bool {
-    unsafe {
-        let mut w = GetTopWindow(std::ptr::null_mut());
-        while !w.is_null() { if w == h { return false; } if w == bar { return true; } w = GetWindow(w, GW_HWNDNEXT); }
-        true
     }
 }
 fn cloaked(h: HWND) -> bool {
@@ -167,7 +160,6 @@ pub fn spawn_placer(app: AppHandle) {
 async fn placer_loop(app: AppHandle) {
     let n = wake();
     let mut styled: isize = 0;
-    let mut shown = false;
     let mut expected: Option<(i32, i32, i32, i32)> = None;
     let mut parked = false;
     let mut fs_ticks = 0u8;
@@ -187,7 +179,7 @@ async fn placer_loop(app: AppHandle) {
         if unsafe { IsWindow(h) } == 0 { log::warn!("widget: hwnd gone -> rebuild"); ensure(&app, true); continue; }
         let Some(b) = taskbar() else { continue };
         SHELL_PID.store(b.pid, SeqCst);
-        if h as isize != styled { style(h); styled = h as isize; SELF_HWND.store(styled, SeqCst); shown = false; expected = None; parked = false; }
+        if h as isize != styled { style(h); styled = h as isize; SELF_HWND.store(styled, SeqCst); expected = None; parked = false; }
 
         fs_ticks = if hide_fs && fullscreen_active(b.pid) { fs_ticks.saturating_add(1) } else { 0 };
         if fs_ticks >= 3 {
@@ -205,21 +197,17 @@ async fn placer_loop(app: AppHandle) {
                      else { (b.rc.left + (bar_h - wid) / 2, b.tray.top - hgt - (GAP * s) as i32) };
         let key = (x, y, wid, hgt);
 
-        if !shown { let _ = w.show(); shown = true; }
         let mut reason: Option<&'static str> = None;
-        if unsafe { IsWindowVisible(h) } == 0 { log::warn!("widget: hidden externally -> show"); let _ = w.show(); }
-        if unsafe { IsIconic(h) } != 0 { log::warn!("widget: minimized externally -> restore"); unsafe { ShowWindow(h, SW_SHOWNOACTIVATE); } }
 
         let actual = rect(h).map(|r| (r.left, r.top, r.right - r.left, r.bottom - r.top));
+        let hidden = unsafe { IsWindowVisible(h) } == 0 || unsafe { IsIconic(h) } != 0;
         let moved = actual.map_or(true, |a| (a.0 - x).abs() > 2 || (a.1 - y).abs() > 2 || (a.2 - wid).abs() > 2 || (a.3 - hgt).abs() > 2);
-        if expected != Some(key) || moved {
+        if expected != Some(key) || moved || hidden {
             if expected == Some(key) { log::warn!("widget: moved/resized externally {:?} -> restore", actual); }
-            unsafe { SetWindowPos(h, HWND_TOPMOST, x, y, wid, hgt, SWP_NOACTIVATE | SWP_NOOWNERZORDER); }
+            unsafe { SetWindowPos(h, HWND_TOPMOST, x, y, wid, hgt, SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW); }
             expected = Some(key);
             *RECT_L.lock() = Some((x as f64 / s, y as f64 / s, wid as f64 / s, hgt as f64 / s));
             let _ = w.emit("widget-size", serde_json::json!({ "w": wid as f64 / s, "h": hgt as f64 / s }));
-        } else if below(h, b.hwnd) {
-            unsafe { SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER); }
         }
 
         if cloaked(h) {
@@ -241,7 +229,7 @@ async fn placer_loop(app: AppHandle) {
                 last_rebuild = Instant::now();
                 let _ = w.destroy();
                 build_when_free(&app);
-                styled = 0; shown = false; expected = None; cloak_ticks = 0;
+                styled = 0; expected = None; cloak_ticks = 0;
             }
         }
     }
@@ -254,6 +242,7 @@ pub fn popup_menu(app: &AppHandle) {
 }
 pub fn hover(app: &AppHandle, on: bool) {
     if on {
+        crate::popup::close(app);
         if let Some(r) = *RECT_L.lock() { *app.state::<AppState>().tray_rect.lock() = Some(r); }
         crate::hover::schedule_show(app);
     } else { crate::hover::schedule_hide(app); }
