@@ -51,7 +51,7 @@ pub fn alive(visible: bool) {
 }
 pub fn rebuild(_app: &AppHandle) { REBUILD_REQ.store(true, SeqCst); wake().notify_one(); }
 
-struct Bar { pid: u32, rc: RECT, tray: RECT, scale: f64 }
+struct Bar { hwnd: isize, pid: u32, rc: RECT, tray: RECT, scale: f64 }
 fn taskbar() -> Option<Bar> {
     unsafe {
         let hwnd = FindWindowW(wide("Shell_TrayWnd").as_ptr(), std::ptr::null());
@@ -61,7 +61,7 @@ fn taskbar() -> Option<Bar> {
         let rc = rect(hwnd)?;
         let tray = if notify.is_null() { RECT { left: rc.right - 1, ..rc } } else { rect(notify)? };
         let dpi = GetDpiForWindow(hwnd);
-        Some(Bar { pid, rc, tray, scale: if dpi == 0 { 1.0 } else { dpi as f64 / 96.0 } })
+        Some(Bar { hwnd: hwnd as isize, pid, rc, tray, scale: if dpi == 0 { 1.0 } else { dpi as f64 / 96.0 } })
     }
 }
 
@@ -89,6 +89,15 @@ fn style(h: HWND) {
         SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
     }
 }
+fn is_topmost(h: HWND) -> bool { unsafe { GetWindowLongPtrW(h, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST != 0 } }
+/// آیا `a` در ترتیب z بالاتر از `b` است؟ (GW_HWNDPREV یعنی پنجره‌ی رویی)
+fn above(a: HWND, b: HWND) -> bool {
+    unsafe { let mut cur = b; for _ in 0..256 { cur = GetWindow(cur, GW_HWNDPREV); if cur.is_null() { return false; } if cur == a { return true; } } }
+    false
+}
+/// برگرداندن ویجت به بالای باند topmost. چون NOMOVE/NOSIZE است، بازترسیمی
+/// و در نتیجه چشمک‌زدنی ندارد.
+fn raise(h: HWND) { unsafe { SetWindowPos(h, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER); } }
 fn cloaked(h: HWND) -> bool {
     let mut v: u32 = 0;
     unsafe { DwmGetWindowAttribute(h, DWMWA_CLOAKED as u32, &mut v as *mut _ as *mut _, 4) };
@@ -130,7 +139,8 @@ unsafe extern "system" fn on_event(_: HWINEVENTHOOK, ev: u32, hwnd: HWND, obj: i
     let hit = match ev {
         EVENT_SYSTEM_FOREGROUND => true,
         EVENT_OBJECT_HIDE => hwnd as isize == me,
-        EVENT_OBJECT_REORDER => hwnd == GetDesktopWindow(),
+        // تغییر ترتیب z در خود پوسته (مثل کلیک روی تسک‌بار) باید فوراً بیدارمان کند.
+        EVENT_OBJECT_REORDER => hwnd == GetDesktopWindow() || { let mut pid = 0u32; GetWindowThreadProcessId(hwnd, &mut pid); pid == SHELL_PID.load(SeqCst) },
         EVENT_OBJECT_SHOW => { let mut pid = 0u32; GetWindowThreadProcessId(hwnd, &mut pid); pid == SHELL_PID.load(SeqCst) }
         _ => false,
     };
@@ -210,6 +220,12 @@ async fn placer_loop(app: AppHandle) {
             let _ = w.emit("widget-size", serde_json::json!({ "w": wid as f64 / s, "h": hgt as f64 / s }));
         }
 
+        // کلیک روی تسک‌بار، اکسپلورر را داخل باند topmost بالا می‌برد و ویجت زیر
+        // تسک‌بار گم می‌شود. قبلاً این حالت به بازسازی ویجت ختم می‌شد (همان چشمک‌زدن)؛
+        // حالا فقط ترتیب z را برمی‌گردانیم و پنجره دست‌نخورده می‌ماند.
+        let occluded = !is_topmost(h) || above(b.hwnd as HWND, h);
+        if occluded { raise(h); }
+
         if cloaked(h) {
             cloak_ticks = cloak_ticks.saturating_add(1);
             let off: BOOL = 0;
@@ -217,10 +233,13 @@ async fn placer_loop(app: AppHandle) {
             if cloak_ticks >= 3 { reason = Some("cloaked by DWM"); }
         } else { cloak_ticks = 0; }
 
+        // وقتی صفحه «پنهان» گزارش می‌شود (پوشیده‌شدن با تسک‌بار)، کرومیوم تایمرهایش
+        // را به یک‌بار در دقیقه کُند می‌کند؛ پس نبودِ ضربان در آن حالت نشانه‌ی هنگ نیست.
         let t = now_ms();
-        if ALIVE_MS.load(SeqCst) + 6000 < t { reason = Some("page not responding"); }
+        let page_visible = PAGE_VISIBLE.load(SeqCst);
+        if page_visible && ALIVE_MS.load(SeqCst) + 8000 < t { reason = Some("page not responding"); }
         let hs = PAGE_HIDDEN_SINCE.load(SeqCst);
-        if !PAGE_VISIBLE.load(SeqCst) && hs != 0 && hs + 3000 < t { reason = Some("webview reports hidden while window shown"); }
+        if !page_visible && !occluded && hs != 0 && hs + 30000 < t { reason = Some("webview hidden too long"); }
         if REBUILD_REQ.swap(false, SeqCst) { reason = Some("manual"); last_rebuild = Instant::now() - Duration::from_secs(60); }
 
         if let Some(r) = reason {
